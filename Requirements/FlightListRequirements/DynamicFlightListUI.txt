@@ -1,0 +1,496 @@
+﻿namespace FlightBooking.Models
+{
+    // Frontend'e dönecek kök nesne
+    public class FlightSearchResult
+    {
+        public string FromCity { get; set; } = "";
+        public string FromIata { get; set; } = "";
+        public string ToCity { get; set; } = "";
+        public string ToIata { get; set; } = "";
+        public string Currency { get; set; } = "TRY";
+        public int TotalCount { get; set; }
+
+        // Üstteki 3 özet kartı
+        public FlightSummary? Best { get; set; }      // En iyi (önerilen)
+        public FlightSummary? Cheapest { get; set; }  // En ucuz
+        public FlightSummary? Fastest { get; set; }   // En hızlı
+
+        // Filtre panelini beslemek için hazır sayaçlar
+        public FilterMeta Filters { get; set; } = new();
+
+        // Uçuş kartları
+        public List<FlightOption> Flights { get; set; } = new();
+    }
+
+    // Özet kart (fiyat + süre + aktarma)
+    public class FlightSummary
+    {
+        public decimal Price { get; set; }
+        public string DurationText { get; set; } = "";
+        public string StopsText { get; set; } = "";   // "Direkt" / "1 aktarma"
+    }
+
+    // Filtre paneli meta verisi
+    public class FilterMeta
+    {
+        public int DirectCount { get; set; }
+        public int OneStopCount { get; set; }
+        public int TwoPlusStopCount { get; set; }
+        public decimal MinPrice { get; set; }
+        public decimal MaxPrice { get; set; }
+        public List<AirlineCount> Airlines { get; set; } = new();
+    }
+
+    public class AirlineCount
+    {
+        public string Name { get; set; } = "";   // "Türk Hava Yolları"
+        public string Code { get; set; } = "";   // "TK"
+        public string Logo { get; set; } = "";
+        public int Count { get; set; }
+    }
+
+    // Tek uçuş kartı
+    public class FlightOption
+    {
+        public string Id { get; set; } = "";           // kart takibi için
+
+        // Havayolu (ana taşıyıcı)
+        public string Airline { get; set; } = "";      // "Türk Hava Yolları"
+        public string AirlineCode { get; set; } = "";  // "TK"
+        public string AirlineLogo { get; set; } = "";
+        public string FlightNumber { get; set; } = ""; // "TK 1951"
+        public string Aircraft { get; set; } = "";     // "Airbus A321"
+
+        // Kalkış
+        public string DepartTime { get; set; } = "";   // "08:30"
+        public string DepartIata { get; set; } = "";   // "IST"
+        public string DepartAirport { get; set; } = ""; // "İstanbul Havalimanı"
+
+        // Varış
+        public string ArriveTime { get; set; } = "";   // "11:05"
+        public string ArriveIata { get; set; } = "";   // "AMS"
+        public string ArriveAirport { get; set; } = ""; // "Amsterdam Schiphol"
+
+        // Orta blok
+        public string DurationText { get; set; } = ""; // "3 sa. 35 dk."
+        public int DurationRaw { get; set; }           // sıralama/filtre için (dakika)
+        public int Stops { get; set; }                 // 0,1,2...
+        public string StopsText { get; set; } = "";    // "Direkt" / "1 aktarma"
+
+        // Fiyat
+        public decimal? Price { get; set; }            // null => fiyat yok
+        public bool PriceAvailable { get; set; }
+
+        // Kart alt satırı
+        public int? CabinBags { get; set; }            // kabin bagajı adedi
+        public int? CheckedBags { get; set; }          // kayıtlı bagaj (null => ücretli/yok)
+        public List<string> Amenities { get; set; } = new(); // "Yemek dahil", "Ücretsiz Wi-Fi"...
+
+        // Rozet
+        public string? Badge { get; set; }             // "Önerilen" / "En Ucuz" / null
+
+        // Filtreleme için gruplama saati (Sabah/Öğle/Akşam)
+        public int DepartHour { get; set; }            // 8, 9, 21...
+
+        // Detay açılınca gösterilecek segmentler + aktarmalar
+        public List<FlightSegment> Segments { get; set; } = new();
+        public List<LayoverInfo> Layovers { get; set; } = new();
+    }
+
+    public class FlightSegment
+    {
+        public string Airline { get; set; } = "";
+        public string AirlineLogo { get; set; } = "";
+        public string FlightNumber { get; set; } = "";
+        public string Aircraft { get; set; } = "";
+        public string FromIata { get; set; } = "";
+        public string FromAirport { get; set; } = "";
+        public string FromTime { get; set; } = "";
+        public string ToIata { get; set; } = "";
+        public string ToAirport { get; set; } = "";
+        public string ToTime { get; set; } = "";
+        public string DurationText { get; set; } = "";
+    }
+
+    public class LayoverInfo
+    {
+        public string AirportCode { get; set; } = "";
+        public string City { get; set; } = "";
+        public string DurationLabel { get; set; } = "";
+    }
+}
+
+---------------------------------------------------------------------------------------------
+
+using FlightBooking.Models;
+
+namespace FlightBooking.Services.FlightServices
+{
+    public interface IFlightService
+    {
+        Task<FlightSearchResult> SearchFlightsAsync(FlightSearchRequest request);
+    }
+}
+---------------------------------------------------------------------------------------------
+
+namespace FlightBooking.Models
+{
+    // ---- Arama parametreleri ----
+    public class FlightSearchRequest
+    {
+        public string DepartureId { get; set; } = "";   // IATA (ESB)
+        public string ArrivalId { get; set; } = "";     // IATA (COV)
+        public string OutboundDate { get; set; } = "";   // yyyy-MM-dd
+        public string? ReturnDate { get; set; }          // yyyy-MM-dd (opsiyonel)
+        public string TravelClass { get; set; } = "ECONOMY";
+        public int Adults { get; set; } = 1;
+        public int Children { get; set; } = 0;
+        public int Infants { get; set; } = 0;
+        public string Currency { get; set; } = "TRY";
+        public bool DirectOnly { get; set; } = false;
+        public string SearchType { get; set; } = "best"; // best / cheap
+    }
+}
+
+
+---------------------------------------------------------------------------------------------
+
+using System.Globalization;
+using System.Text;
+using System.Text.Json;
+using FlightBooking.Models;
+
+namespace FlightBooking.Services.FlightServices
+{
+    public class FlightService : IFlightService
+    {
+        private readonly HttpClient _client;
+
+        private const string ApiKey = "PUT_YOUR_KEY_HERE"; // config'e taşınmalı
+        private const string ApiHost = "google-flights2.p.rapidapi.com";
+
+        private static readonly JsonSerializerOptions JsonOpts = new()
+        {
+            PropertyNameCaseInsensitive = true
+        };
+
+        public FlightService(HttpClient client)
+        {
+            _client = client;
+        }
+
+        public async Task<FlightSearchResult> SearchFlightsAsync(FlightSearchRequest req)
+        {
+            var result = new FlightSearchResult
+            {
+                FromIata = req.DepartureId,
+                ToIata = req.ArrivalId,
+                Currency = req.Currency
+            };
+
+            if (string.IsNullOrWhiteSpace(req.DepartureId) ||
+                string.IsNullOrWhiteSpace(req.ArrivalId) ||
+                string.IsNullOrWhiteSpace(req.OutboundDate))
+                return result;
+
+            var url = BuildUrl(req);
+
+            var request = new HttpRequestMessage
+            {
+                Method = HttpMethod.Get,
+                RequestUri = new Uri(url),
+                Headers =
+                {
+                    { "x-rapidapi-key", ApiKey },
+                    { "x-rapidapi-host", ApiHost },
+                },
+            };
+
+            using var response = await _client.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+
+            var body = await response.Content.ReadAsStringAsync();
+            var parsed = JsonSerializer.Deserialize<FlightSearchResponse>(body, JsonOpts);
+            var itin = parsed?.Data?.Itineraries;
+            if (itin == null)
+                return result;
+
+            // topFlights + otherFlights birleştir. topFlights "önerilen" adayı.
+            var options = new List<FlightOption>();
+            int idx = 0;
+
+            if (itin.TopFlights != null)
+                foreach (var it in itin.TopFlights)
+                {
+                    var opt = MapOption(it, idx++, isTop: true);
+                    if (opt != null) options.Add(opt);
+                }
+
+            if (itin.OtherFlights != null)
+                foreach (var it in itin.OtherFlights)
+                {
+                    var opt = MapOption(it, idx++, isTop: false);
+                    if (opt != null) options.Add(opt);
+                }
+
+            // Direkt filtresi
+            if (req.DirectOnly)
+                options = options.Where(o => o.Stops == 0).ToList();
+
+            // Kaynak havayolu/havalimanı adlarını ilk uçuştan çıkar (özet başlığı için)
+            var firstWithSegments = options.FirstOrDefault(o => o.Segments.Count > 0);
+            if (firstWithSegments != null)
+            {
+                result.FromCity = firstWithSegments.DepartAirport;
+                result.ToCity = firstWithSegments.ArriveAirport;
+            }
+
+            // Özet kartları
+            var priced = options.Where(o => o.PriceAvailable && o.Price.HasValue).ToList();
+
+            // En iyi (önerilen): topFlights'ın ilk fiyatlısı, yoksa en ucuz
+            var best = options.FirstOrDefault(o => o.Badge == "Önerilen" && o.PriceAvailable)
+                       ?? priced.OrderBy(o => o.Price).FirstOrDefault();
+
+            var cheapest = priced.OrderBy(o => o.Price).FirstOrDefault();
+            var fastest = priced.OrderBy(o => o.DurationRaw).FirstOrDefault()
+                          ?? options.OrderBy(o => o.DurationRaw).FirstOrDefault();
+
+            result.Best = ToSummary(best);
+            result.Cheapest = ToSummary(cheapest);
+            result.Fastest = ToSummary(fastest);
+
+            // Rozetleri ata (En Ucuz / En Hızlı). Önerilen zaten MapOption'da atandı.
+            if (cheapest != null) cheapest.Badge ??= "En Ucuz";
+            if (fastest != null && fastest.Badge == null) fastest.Badge = "En Hızlı";
+
+            // Filtre meta
+            result.Filters = BuildFilters(options, priced);
+
+            // Varsayılan sıralama: önerilen öne, sonra fiyat
+            result.Flights = options
+                .OrderByDescending(o => o.Badge == "Önerilen")
+                .ThenByDescending(o => o.PriceAvailable)
+                .ThenBy(o => o.Price ?? decimal.MaxValue)
+                .ToList();
+
+            result.TotalCount = result.Flights.Count;
+            return result;
+        }
+
+        private static FlightSummary? ToSummary(FlightOption? o)
+        {
+            if (o == null || !o.Price.HasValue) return null;
+            return new FlightSummary
+            {
+                Price = o.Price.Value,
+                DurationText = o.DurationText,
+                StopsText = o.StopsText
+            };
+        }
+
+        private static FilterMeta BuildFilters(List<FlightOption> all, List<FlightOption> priced)
+        {
+            var meta = new FilterMeta
+            {
+                DirectCount = all.Count(o => o.Stops == 0),
+                OneStopCount = all.Count(o => o.Stops == 1),
+                TwoPlusStopCount = all.Count(o => o.Stops >= 2),
+                MinPrice = priced.Count > 0 ? priced.Min(o => o.Price!.Value) : 0,
+                MaxPrice = priced.Count > 0 ? priced.Max(o => o.Price!.Value) : 0
+            };
+
+            meta.Airlines = all
+                .GroupBy(o => new { o.Airline, o.AirlineCode, o.AirlineLogo })
+                .Select(g => new AirlineCount
+                {
+                    Name = g.Key.Airline,
+                    Code = g.Key.AirlineCode,
+                    Logo = g.Key.AirlineLogo,
+                    Count = g.Count()
+                })
+                .Where(a => !string.IsNullOrEmpty(a.Name))
+                .OrderByDescending(a => a.Count)
+                .ToList();
+
+            return meta;
+        }
+
+        private static string BuildUrl(FlightSearchRequest req)
+        {
+            var sb = new StringBuilder();
+            sb.Append("https://google-flights2.p.rapidapi.com/api/v1/searchFlights");
+            sb.Append($"?departure_id={Uri.EscapeDataString(req.DepartureId)}");
+            sb.Append($"&arrival_id={Uri.EscapeDataString(req.ArrivalId)}");
+            sb.Append($"&outbound_date={Uri.EscapeDataString(req.OutboundDate)}");
+
+            if (!string.IsNullOrWhiteSpace(req.ReturnDate))
+                sb.Append($"&return_date={Uri.EscapeDataString(req.ReturnDate)}");
+
+            sb.Append($"&travel_class={Uri.EscapeDataString(req.TravelClass)}");
+            sb.Append($"&adults={req.Adults}");
+            if (req.Children > 0) sb.Append($"&children={req.Children}");
+            if (req.Infants > 0) sb.Append($"&infant_in_seat={req.Infants}");
+
+            sb.Append("&show_hidden=1");
+            sb.Append($"&currency={Uri.EscapeDataString(req.Currency)}");
+            sb.Append("&language_code=en-US&country_code=US");
+            sb.Append($"&search_type={Uri.EscapeDataString(req.SearchType)}");
+
+            return sb.ToString();
+        }
+
+        private static FlightOption? MapOption(ApiItinerary it, int index, bool isTop)
+        {
+            if (it.Flights == null || it.Flights.Count == 0)
+                return null;
+
+            var first = it.Flights.First();
+            var last = it.Flights.Last();
+
+            decimal? price = null;
+            bool priceAvailable = false;
+            if (it.Price.ValueKind == JsonValueKind.Number)
+            {
+                price = it.Price.GetDecimal();
+                priceAvailable = true;
+            }
+
+            int stops = it.Layovers?.Count ?? 0;
+            var airlineCode = ExtractAirlineCode(first.FlightNumber);
+
+            var opt = new FlightOption
+            {
+                Id = $"f{index}",
+                Airline = first.Airline ?? "",
+                AirlineCode = airlineCode,
+                AirlineLogo = it.AirlineLogo ?? first.AirlineLogo ?? "",
+                FlightNumber = first.FlightNumber ?? "",
+                Aircraft = first.Aircraft ?? "",
+
+                DepartTime = ExtractClock(first.DepartureAirport?.Time),
+                DepartIata = first.DepartureAirport?.AirportCode ?? "",
+                DepartAirport = first.DepartureAirport?.AirportName ?? "",
+
+                ArriveTime = ExtractClock(last.ArrivalAirport?.Time),
+                ArriveIata = last.ArrivalAirport?.AirportCode ?? "",
+                ArriveAirport = last.ArrivalAirport?.AirportName ?? "",
+
+                DurationText = FormatDuration(it.Duration?.Raw ?? 0),
+                DurationRaw = it.Duration?.Raw ?? 0,
+                Stops = stops,
+                StopsText = stops == 0 ? "Direkt" : $"{stops} aktarma",
+
+                Price = price,
+                PriceAvailable = priceAvailable,
+
+                CabinBags = it.Bags?.CarryOn,
+                CheckedBags = it.Bags?.Checked,
+
+                DepartHour = ExtractHour(first.DepartureAirport?.Time),
+                Badge = isTop && index == 0 ? "Önerilen" : null
+            };
+
+            // Olanaklar: ilk segmentin extensions'ından türetelim (yemek/wifi/usb vb.)
+            opt.Amenities = BuildAmenities(first);
+
+            // Segmentler
+            foreach (var f in it.Flights)
+            {
+                opt.Segments.Add(new FlightSegment
+                {
+                    Airline = f.Airline ?? "",
+                    AirlineLogo = f.AirlineLogo ?? "",
+                    FlightNumber = f.FlightNumber ?? "",
+                    Aircraft = f.Aircraft ?? "",
+                    FromIata = f.DepartureAirport?.AirportCode ?? "",
+                    FromAirport = f.DepartureAirport?.AirportName ?? "",
+                    FromTime = ExtractClock(f.DepartureAirport?.Time),
+                    ToIata = f.ArrivalAirport?.AirportCode ?? "",
+                    ToAirport = f.ArrivalAirport?.AirportName ?? "",
+                    ToTime = ExtractClock(f.ArrivalAirport?.Time),
+                    DurationText = FormatDuration(f.Duration?.Raw ?? 0)
+                });
+            }
+
+            if (it.Layovers != null)
+                foreach (var l in it.Layovers)
+                    opt.Layovers.Add(new LayoverInfo
+                    {
+                        AirportCode = l.AirportCode ?? "",
+                        City = l.City ?? "",
+                        DurationLabel = l.DurationLabel ?? ""
+                    });
+
+            return opt;
+        }
+
+        // "TK 2189" -> "TK"
+        private static string ExtractAirlineCode(string? flightNumber)
+        {
+            if (string.IsNullOrWhiteSpace(flightNumber)) return "";
+            var parts = flightNumber.Split(' ');
+            return parts.Length > 0 ? parts[0] : "";
+        }
+
+        // "2026-8-20 07:30" -> "07:30"
+        private static string ExtractClock(string? time)
+        {
+            if (string.IsNullOrWhiteSpace(time)) return "";
+            var parts = time.Split(' ');
+            if (parts.Length < 2) return "";
+            var hm = parts[1].Split(':');
+            if (hm.Length < 2) return parts[1];
+            // saat/dakikayı 2 haneye tamamla
+            var h = hm[0].PadLeft(2, '0');
+            var m = hm[1].PadLeft(2, '0');
+            return $"{h}:{m}";
+        }
+
+        // "2026-8-20 07:30" -> 7
+        private static int ExtractHour(string? time)
+        {
+            if (string.IsNullOrWhiteSpace(time)) return 0;
+            var parts = time.Split(' ');
+            if (parts.Length < 2) return 0;
+            var hm = parts[1].Split(':');
+            return int.TryParse(hm[0], out var h) ? h : 0;
+        }
+
+        // 215 dakika -> "3 sa. 35 dk."
+        private static string FormatDuration(int minutes)
+        {
+            if (minutes <= 0) return "";
+            var h = minutes / 60;
+            var m = minutes % 60;
+            if (h == 0) return $"{m} dk.";
+            return $"{h} sa. {m:00} dk.";
+        }
+
+        private static List<string> BuildAmenities(ApiFlightLeg leg)
+        {
+            var list = new List<string>();
+            if (leg.Extensions == null) return list;
+
+            foreach (var ext in leg.Extensions)
+            {
+                if (ext == null) continue;
+                var lower = ext.ToLowerInvariant();
+
+                if (lower.Contains("wi-fi") && !list.Contains("Ücretsiz Wi-Fi") &&
+                    (lower.Contains("free") || lower.Contains("ücretsiz")))
+                    list.Add("Ücretsiz Wi-Fi");
+                else if (lower.Contains("video") && !list.Contains("Ekran/Video"))
+                    list.Add("Ekran/Video");
+                else if (lower.Contains("usb") && !list.Contains("USB girişi"))
+                    list.Add("USB girişi");
+            }
+
+            return list;
+        }
+    }
+}
+
+
+---------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------

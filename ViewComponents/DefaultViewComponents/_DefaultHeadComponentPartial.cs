@@ -2,7 +2,7 @@
 
 namespace FlightBooking.ViewComponents.DefaultViewComponents
 {
-    public class _DefaultHeadViewComponentPartial:ViewComponent
+    public class _DefaultHeadComponentPartial:ViewComponent
     {
         public IViewComponentResult Invoke()
         {
